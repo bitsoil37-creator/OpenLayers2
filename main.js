@@ -82,8 +82,7 @@ const map = new maplibregl.Map({
 });
 
 let markers = {};
-let lockEnabled = true;
-let suppressUpdate = false; // ✅ NEW FLAG
+let suppressUpdate = false; // keep suppression for Done-click behavior
 
 map.on("load", () => {
   map.addSource("maptiler-terrain", {
@@ -93,7 +92,7 @@ map.on("load", () => {
   });
   map.setTerrain({ source: "maptiler-terrain", exaggeration: 1.5 });
 
-  // ✅ Skip updates if suppressed
+  // Realtime Firebase updates (skip when suppressed)
   const userRef = ref(db, `Users/${username}/Farm/Nodes`);
   onValue(userRef, (snapshot) => {
     if (suppressUpdate) return;
@@ -207,7 +206,7 @@ function updateMap(data) {
 
           doneBtn.onclick = async () => {
             try {
-              suppressUpdate = true; // 🟡 stop map refresh temporarily
+              suppressUpdate = true; // stop map refresh temporarily
               const timeClicked = Date.now();
               const disabledKey = `Disabled_${param}_done`;
               const packetKeys = Object.keys(nodeData.Packets || {});
@@ -223,6 +222,7 @@ function updateMap(data) {
               info.style.cursor = "not-allowed";
               advisoryContainer.innerHTML = "";
 
+              // short suppression so onValue handler doesn't rebuild immediately
               setTimeout(() => {
                 suppressUpdate = false;
               }, 2000);
@@ -249,66 +249,35 @@ function updateMap(data) {
     };
     container.append(toggleBtn, advisoryContainer);
 
-    // ✅ POPUP: appear beside (right of) marker
+    // POPUP: appear beside marker but MUCH closer
     const popup = new maplibregl.Popup({
       closeButton: true,
       closeOnClick: false,
-      offset: [120, -10], // move right
-      anchor: "left"      // show beside marker
+      offset: [70, 0], // smaller X offset -> nearer to marker
+      anchor: "left"   // popup to the right of marker
     }).setDOMContent(container);
 
     marker.setPopup(popup);
     markers[nodeName] = marker;
   });
 
-  // ✅ Force horizontal orientation & proper bounds
-  if (coordsList.length > 0 && lockEnabled) {
+  // Force horizontal orientation & proper bounds (use wide left/right padding)
+  if (coordsList.length > 0) {
     const minX = Math.min(...coordsList.map(c => c[0]));
     const maxX = Math.max(...coordsList.map(c => c[0]));
     const minY = Math.min(...coordsList.map(c => c[1]));
     const maxY = Math.max(...coordsList.map(c => c[1]));
     const bounds = new maplibregl.LngLatBounds([minX, minY], [maxX, maxY]);
 
-    const padding = { top: 100, bottom: 100, left: 200, right: 200 };
-    map.fitBounds(bounds, { padding, animate: true });
+    // Make left/right padding much bigger than top/bottom to force horizontal framing
+    const padding = { top: 40, bottom: 40, left: 400, right: 400 };
+    map.fitBounds(bounds, { padding, animate: true, maxZoom: 16 });
+
+    // Keep map strictly top-down and horizontal
     map.setPitch(0);
     map.setBearing(0);
-    map.resize(); // ensures horizontal sizing fits viewport
+    map.resize();
   }
 }
 
-/* --- Draggable Lock Button --- */
-const lockBtn = document.getElementById("lockBtn");
-let isDragging = false, startX, startY, startLeft, startTop;
 
-lockBtn.addEventListener("click", () => {
-  lockEnabled = !lockEnabled;
-  lockBtn.textContent = lockEnabled ? "🔒" : "🔓";
-  lockBtn.classList.toggle("locked", lockEnabled);
-  lockBtn.classList.toggle("unlocked", !lockEnabled);
-});
-
-lockBtn.addEventListener("mousedown", (e) => {
-  isDragging = true;
-  startX = e.clientX;
-  startY = e.clientY;
-  const rect = lockBtn.getBoundingClientRect();
-  startLeft = rect.left;
-  startTop = rect.top;
-  lockBtn.style.cursor = "grabbing";
-});
-
-document.addEventListener("mousemove", (e) => {
-  if (!isDragging) return;
-  e.preventDefault();
-  const newLeft = startLeft + (e.clientX - startX);
-  const newTop = startTop + (e.clientY - startY);
-  lockBtn.style.left = `${newLeft}px`;
-  lockBtn.style.top = `${newTop}px`;
-  lockBtn.style.right = "auto";
-});
-
-document.addEventListener("mouseup", () => {
-  isDragging = false;
-  lockBtn.style.cursor = "grab";
-});
