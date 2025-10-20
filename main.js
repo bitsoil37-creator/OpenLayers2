@@ -223,7 +223,6 @@ function updateMap(data) {
               info.style.cursor = "not-allowed";
               advisoryContainer.innerHTML = "";
 
-              // Re-enable update after 2 seconds
               setTimeout(() => {
                 suppressUpdate = false;
               }, 2000);
@@ -250,25 +249,31 @@ function updateMap(data) {
     };
     container.append(toggleBtn, advisoryContainer);
 
+    // ✅ POPUP: appear beside (right of) marker
     const popup = new maplibregl.Popup({
       closeButton: true,
       closeOnClick: false,
-      offset: 25
+      offset: [120, -10], // move right
+      anchor: "left"      // show beside marker
     }).setDOMContent(container);
 
     marker.setPopup(popup);
     markers[nodeName] = marker;
   });
 
+  // ✅ Force horizontal orientation & proper bounds
   if (coordsList.length > 0 && lockEnabled) {
     const minX = Math.min(...coordsList.map(c => c[0]));
     const maxX = Math.max(...coordsList.map(c => c[0]));
     const minY = Math.min(...coordsList.map(c => c[1]));
     const maxY = Math.max(...coordsList.map(c => c[1]));
     const bounds = new maplibregl.LngLatBounds([minX, minY], [maxX, maxY]);
-    map.fitBounds(bounds, { padding: 100, animate: true });
+
+    const padding = { top: 100, bottom: 100, left: 200, right: 200 };
+    map.fitBounds(bounds, { padding, animate: true });
     map.setPitch(0);
     map.setBearing(0);
+    map.resize(); // ensures horizontal sizing fits viewport
   }
 }
 
