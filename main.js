@@ -251,11 +251,12 @@ function updateMap(data) {
 
     // POPUP: appear beside marker but MUCH closer
     const popup = new maplibregl.Popup({
-      closeButton: true,
-      closeOnClick: false,
-      offset: [70, 0], // smaller X offset -> nearer to marker
-      anchor: "left"   // popup to the right of marker
-    }).setDOMContent(container);
+  closeButton: true,
+  closeOnClick: false,
+  offset: [15, -15], // reduced horizontal distance
+  anchor: "left"
+}).setDOMContent(container);
+
 
     marker.setPopup(popup);
     markers[nodeName] = marker;
@@ -263,21 +264,57 @@ function updateMap(data) {
 
   // Force horizontal orientation & proper bounds (use wide left/right padding)
   if (coordsList.length > 0) {
-    const minX = Math.min(...coordsList.map(c => c[0]));
-    const maxX = Math.max(...coordsList.map(c => c[0]));
-    const minY = Math.min(...coordsList.map(c => c[1]));
-    const maxY = Math.max(...coordsList.map(c => c[1]));
-    const bounds = new maplibregl.LngLatBounds([minX, minY], [maxX, maxY]);
+  // compute raw min/max
+  let minX = Math.min(...coordsList.map(c => c[0]));
+  let maxX = Math.max(...coordsList.map(c => c[0]));
+  let minY = Math.min(...coordsList.map(c => c[1]));
+  let maxY = Math.max(...coordsList.map(c => c[1]));
 
-    // Make left/right padding much bigger than top/bottom to force horizontal framing
-    const padding = { top: 40, bottom: 40, left: 400, right: 400 };
-    map.fitBounds(bounds, { padding, animate: true, maxZoom: 16 });
+  // ensure map container is up to date
+  map.resize();
 
-    // Keep map strictly top-down and horizontal
-    map.setPitch(0);
-    map.setBearing(0);
-    map.resize();
+  // viewport aspect ratio
+  const w = map.getContainer().clientWidth || window.innerWidth;
+  const h = map.getContainer().clientHeight || window.innerHeight;
+  const viewRatio = w / h;
+
+  // small guard for zero spans
+  let lngSpan = Math.max(0.00001, maxX - minX);
+  let latSpan = Math.max(0.00001, maxY - minY);
+
+  // current ratio of bounds (lng / lat)
+  const boundsRatio = lngSpan / latSpan;
+
+  // expand whichever span is needed so bounds have same ratio as viewport
+  if (boundsRatio < viewRatio) {
+    // bounds are too tall (relative to width) -> expand longitude span
+    const targetLngSpan = latSpan * viewRatio;
+    const add = (targetLngSpan - lngSpan) / 2;
+    minX -= add;
+    maxX += add;
+  } else if (boundsRatio > viewRatio) {
+    // bounds are too wide -> expand latitude span (so map doesn't feel "tall")
+    const targetLatSpan = lngSpan / viewRatio;
+    const add = (targetLatSpan - latSpan) / 2;
+    minY -= add;
+    maxY += add;
   }
+
+  // create adjusted bounds and fit
+  const adjustedBounds = new maplibregl.LngLatBounds([minX, minY], [maxX, maxY]);
+
+  // padding: keep top/bottom smaller than left/right so framing favors horizontal
+  const padding = { top: 40, bottom: 40, left: Math.round(w * 0.12), right: Math.round(w * 0.12) };
+
+  // limit a max zoom so it doesn't zoom in too close
+  map.fitBounds(adjustedBounds, { padding, animate: true, maxZoom: 16 });
+
+  // keep map flat
+  map.setPitch(0);
+  map.setBearing(0);
+}
+// -------------------------------------------------------------------------------
+
 }
 
 
