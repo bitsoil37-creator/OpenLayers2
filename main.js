@@ -74,25 +74,43 @@ if (!username) {
 /* --- Map setup --- */
 const map = new maplibregl.Map({
   container: 'map',
-  style: `https://api.maptiler.com/maps/satellite/style.json?key=4PatP9E7wRCOb8KyMwNh`,
-  center: [125.2653, 6.9253],
-  zoom: 15,
-  pitch: 0,
-  bearing: 0
+  style: {
+    version: 8,
+    sources: {
+      satellite: {
+        type: 'raster',
+        tiles: [
+          `https://api.maptiler.com/maps/satellite/256/{z}/{x}/{y}.jpg?key=k0zBlTOs7WrHcJIfCohH`
+        ],
+        tileSize: 256,
+        attribution:
+          '<a href="https://www.maptiler.com/" target="_blank">© MapTiler</a> © OpenStreetMap contributors'
+      }
+    },
+    layers: [
+      {
+        id: 'satellite-layer',
+        type: 'raster',
+        source: 'satellite',
+        minzoom: 0,
+        maxzoom: 22
+      }
+    ]
+  },
+  center: [125.2647, 6.9248],
+  zoom: 18,
+  bearing: 270, // facing west
+  pitch: 0 // top-down
 });
+
+/* ✅ Only one compass control */
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
 
 let markers = {};
 let suppressUpdate = false; // keep suppression for Done-click behavior
 
+/* --- Firebase Realtime Updates --- */
 map.on("load", () => {
-  map.addSource("maptiler-terrain", {
-    type: "raster-dem",
-    url: `https://api.maptiler.com/tiles/terrain-rgb/tiles.json?key=4PatP9E7wRCOb8KyMwNh`,
-    tileSize: 256
-  });
-  map.setTerrain({ source: "maptiler-terrain", exaggeration: 1.5 });
-
-  // Realtime Firebase updates (skip when suppressed)
   const userRef = ref(db, `Users/${username}/Farm/Nodes`);
   onValue(userRef, (snapshot) => {
     if (suppressUpdate) return;
@@ -206,7 +224,7 @@ function updateMap(data) {
 
           doneBtn.onclick = async () => {
             try {
-              suppressUpdate = true; // stop map refresh temporarily
+              suppressUpdate = true;
               const timeClicked = Date.now();
               const disabledKey = `Disabled_${param}_done`;
               const packetKeys = Object.keys(nodeData.Packets || {});
@@ -222,7 +240,6 @@ function updateMap(data) {
               info.style.cursor = "not-allowed";
               advisoryContainer.innerHTML = "";
 
-              // short suppression so onValue handler doesn't rebuild immediately
               setTimeout(() => {
                 suppressUpdate = false;
               }, 2000);
@@ -249,72 +266,59 @@ function updateMap(data) {
     };
     container.append(toggleBtn, advisoryContainer);
 
-    // POPUP: appear beside marker but MUCH closer
     const popup = new maplibregl.Popup({
-  closeButton: true,
-  closeOnClick: false,
-  offset: [15, -15], // reduced horizontal distance
-  anchor: "left"
-}).setDOMContent(container);
-
+      closeButton: true,
+      closeOnClick: false,
+      offset: [15, -15],
+      anchor: "left"
+    }).setDOMContent(container);
 
     marker.setPopup(popup);
     markers[nodeName] = marker;
   });
 
-  // Force horizontal orientation & proper bounds (use wide left/right padding)
+  // Adjust zoom and bounds
   if (coordsList.length > 0) {
-  // compute raw min/max
-  let minX = Math.min(...coordsList.map(c => c[0]));
-  let maxX = Math.max(...coordsList.map(c => c[0]));
-  let minY = Math.min(...coordsList.map(c => c[1]));
-  let maxY = Math.max(...coordsList.map(c => c[1]));
+    let minX = Math.min(...coordsList.map(c => c[0]));
+    let maxX = Math.max(...coordsList.map(c => c[0]));
+    let minY = Math.min(...coordsList.map(c => c[1]));
+    let maxY = Math.max(...coordsList.map(c => c[1]));
 
-  // ensure map container is up to date
-  map.resize();
+    map.resize();
 
-  // viewport aspect ratio
-  const w = map.getContainer().clientWidth || window.innerWidth;
-  const h = map.getContainer().clientHeight || window.innerHeight;
-  const viewRatio = w / h;
+    const w = map.getContainer().clientWidth || window.innerWidth;
+    const h = map.getContainer().clientHeight || window.innerHeight;
+    const viewRatio = w / h;
 
-  // small guard for zero spans
-  let lngSpan = Math.max(0.00001, maxX - minX);
-  let latSpan = Math.max(0.00001, maxY - minY);
+    let lngSpan = Math.max(0.00001, maxX - minX);
+    let latSpan = Math.max(0.00001, maxY - minY);
 
-  // current ratio of bounds (lng / lat)
-  const boundsRatio = lngSpan / latSpan;
+    const boundsRatio = lngSpan / latSpan;
 
-  // expand whichever span is needed so bounds have same ratio as viewport
-  if (boundsRatio < viewRatio) {
-    // bounds are too tall (relative to width) -> expand longitude span
-    const targetLngSpan = latSpan * viewRatio;
-    const add = (targetLngSpan - lngSpan) / 2;
-    minX -= add;
-    maxX += add;
-  } else if (boundsRatio > viewRatio) {
-    // bounds are too wide -> expand latitude span (so map doesn't feel "tall")
-    const targetLatSpan = lngSpan / viewRatio;
-    const add = (targetLatSpan - latSpan) / 2;
-    minY -= add;
-    maxY += add;
+    if (boundsRatio < viewRatio) {
+      const targetLngSpan = latSpan * viewRatio;
+      const add = (targetLngSpan - lngSpan) / 2;
+      minX -= add;
+      maxX += add;
+    } else if (boundsRatio > viewRatio) {
+      const targetLatSpan = lngSpan / viewRatio;
+      const add = (targetLatSpan - latSpan) / 2;
+      minY -= add;
+      maxY += add;
+    }
+
+    const adjustedBounds = new maplibregl.LngLatBounds([minX, minY], [maxX, maxY]);
+    const padding = { top: 40, bottom: 40, left: Math.round(w * 0.12), right: Math.round(w * 0.12) };
+
+    map.fitBounds(adjustedBounds, {
+      padding,
+      animate: true,
+      maxZoom: 16,
+      bearing: 270,
+      pitch: 0
+    });
   }
-
-  // create adjusted bounds and fit
-  const adjustedBounds = new maplibregl.LngLatBounds([minX, minY], [maxX, maxY]);
-
-  // padding: keep top/bottom smaller than left/right so framing favors horizontal
-  const padding = { top: 40, bottom: 40, left: Math.round(w * 0.12), right: Math.round(w * 0.12) };
-
-  // limit a max zoom so it doesn't zoom in too close
-  map.fitBounds(adjustedBounds, { padding, animate: true, maxZoom: 16 });
-
-  // keep map flat
-  map.setPitch(0);
-  map.setBearing(0);
 }
-// -------------------------------------------------------------------------------
 
-}
 
 
