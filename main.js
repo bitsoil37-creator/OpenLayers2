@@ -122,6 +122,7 @@ map.on("load", () => {
 /* --- Update Map --- */
 function updateMap(data) {
   const coordsList = [];
+  let activePopupNode = null;
 
   Object.entries(data).forEach(([nodeName, nodeData]) => {
     const coords = nodeData.Coordinates;
@@ -140,6 +141,8 @@ function updateMap(data) {
 
     const container = document.createElement("div");
     container.className = "popup-content";
+    container.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+
     const title = document.createElement("h3");
     title.textContent = nodeName;
     title.style.textAlign = "center";
@@ -163,15 +166,16 @@ function updateMap(data) {
       if (param === "pH") percent = ((value - 3) / (9 - 3)) * 100;
       else if (param === "Moisture") percent = value;
       else if (param === "Temperature") percent = ((value - (-30)) / (70 - (-30))) * 100;
-      else percent = (Math.log10(Math.max(value, 0.01)) - Math.log10(0.01)) /
-                     (Math.log10(20) - Math.log10(0.01)) * 100;
+      else percent =
+        (Math.log10(Math.max(value, 0.01)) - Math.log10(0.01)) /
+        (Math.log10(20) - Math.log10(0.01)) * 100;
 
       const barContainer = document.createElement("div");
       barContainer.className = "bar-container";
       const bar = document.createElement("div");
       bar.className = "bar";
       bar.style.width = Math.min(Math.max(percent, 0), 100) + "%";
-      const inRange = (value >= min && value <= max);
+      const inRange = value >= min && value <= max;
       bar.style.background = inRange ? "darkgreen" : "red";
 
       const barLines = document.createElement("div");
@@ -197,58 +201,70 @@ function updateMap(data) {
 
       info.onclick = () => {
         if (info.disabled) return;
-        if (advisoryContainer.innerHTML !== "") {
-          advisoryContainer.innerHTML = "";
-        } else {
-          const message = value < min ? messages[param].low : messages[param].high;
-          const msg = document.createElement("p");
-          msg.textContent = message;
-          msg.className = "advisory-text";
-          msg.style.color = "black";
-          advisoryContainer.appendChild(msg);
 
-          const doneBtn = document.createElement("button");
-          doneBtn.textContent = "Done";
-          doneBtn.className = "done-btn";
-          doneBtn.style.background = "gray";
-          doneBtn.style.color = "black";
-          doneBtn.style.display = "block";
-          doneBtn.style.margin = "10px auto";
-          advisoryContainer.appendChild(doneBtn);
+        const globalAdvisory = document.getElementById("global-advisory");
+        const popupEl = document.querySelector(".maplibregl-popup-content");
 
-          const note = document.createElement("p");
-          note.textContent = "Note: For parameters like NPK, EC, and pH, changes may take time or days to appear. If an action is performed, please wait before checking results.";
-          note.className = "note-text";
-          note.style.color = "black";
-          advisoryContainer.appendChild(note);
-
-          doneBtn.onclick = async () => {
-            try {
-              suppressUpdate = true;
-              const timeClicked = Date.now();
-              const disabledKey = `Disabled_${param}_done`;
-              const packetKeys = Object.keys(nodeData.Packets || {});
-              if (packetKeys.length === 0) return;
-              const latestKey = packetKeys[packetKeys.length - 1];
-              const disabledPath = `Users/${username}/Farm/Nodes/${nodeName}/Packets/${latestKey}/${disabledKey}`;
-
-              await set(ref(db, disabledPath), timeClicked);
-              console.log(`✅ Disabled ${param} for ${nodeName}`);
-
-              info.disabled = true;
-              info.style.opacity = "0.3";
-              info.style.cursor = "not-allowed";
-              advisoryContainer.innerHTML = "";
-
-              setTimeout(() => {
-                suppressUpdate = false;
-              }, 2000);
-            } catch (err) {
-              console.error("❌ Error disabling:", err);
-              suppressUpdate = false;
-            }
-          };
+        // If already showing for this node+param, toggle off
+        if (
+          globalAdvisory.dataset.activeNode === nodeName &&
+          globalAdvisory.dataset.activeParam === param
+        ) {
+          globalAdvisory.style.display = "none";
+          globalAdvisory.dataset.activeNode = "";
+          globalAdvisory.dataset.activeParam = "";
+          return;
         }
+
+        const message = value < min ? messages[param].low : messages[param].high;
+        globalAdvisory.innerHTML = `
+          <p class="advisory-text">${message}</p>
+          <button id="doneBtn" class="done-btn">Done</button>
+          <p class="note-text">
+            Note: For parameters like NPK, EC, and pH, changes may take time or days to appear.
+            If an action is performed, please wait before checking results.
+          </p>
+        `;
+        globalAdvisory.style.display = "block";
+        globalAdvisory.dataset.activeNode = nodeName;
+        globalAdvisory.dataset.activeParam = param;
+
+        function updateAdvisoryPosition() {
+          const popup = document.querySelector(".maplibregl-popup-content");
+          if (popup && globalAdvisory.style.display === "block") {
+            const rect = popup.getBoundingClientRect();
+            globalAdvisory.style.top = `${rect.bottom + window.scrollY + 8}px`;
+            globalAdvisory.style.left = `${
+              rect.left + window.scrollX + rect.width / 2 - globalAdvisory.offsetWidth / 2
+            }px`;
+          }
+        }
+        updateAdvisoryPosition();
+        map.on("move", updateAdvisoryPosition);
+        map.on("zoom", updateAdvisoryPosition);
+        const popupObserver = new MutationObserver(updateAdvisoryPosition);
+        if (popupEl) popupObserver.observe(popupEl, { childList: true, subtree: true });
+
+        document.getElementById("doneBtn").onclick = async () => {
+          try {
+            suppressUpdate = true;
+            const timeClicked = Date.now();
+            const disabledKey = `Disabled_${param}_done`;
+            const packetKeys = Object.keys(nodeData.Packets || {});
+            if (packetKeys.length === 0) return;
+            const latestKey = packetKeys[packetKeys.length - 1];
+            const disabledPath = `Users/${username}/Farm/Nodes/${nodeName}/Packets/${latestKey}/${disabledKey}`;
+            await set(ref(db, disabledPath), timeClicked);
+            info.disabled = true;
+            info.style.opacity = "0.3";
+            info.style.cursor = "not-allowed";
+            globalAdvisory.style.display = "none";
+            setTimeout(() => (suppressUpdate = false), 2000);
+          } catch (err) {
+            console.error("❌ Error disabling:", err);
+            suppressUpdate = false;
+          }
+        };
       };
 
       row.append(label, barContainer, info);
@@ -261,28 +277,59 @@ function updateMap(data) {
     toggleBtn.onclick = () => {
       const extras = container.querySelectorAll(".extra");
       const hidden = extras[0].classList.contains("hidden");
-      extras.forEach(e => e.classList.toggle("hidden", !hidden));
+      extras.forEach((e) => e.classList.toggle("hidden", !hidden));
       toggleBtn.textContent = hidden ? "⬆️" : "⬇️";
     };
-    container.append(toggleBtn, advisoryContainer);
+    container.append(toggleBtn);
 
     const popup = new maplibregl.Popup({
       closeButton: true,
       closeOnClick: false,
       offset: [15, -15],
-      anchor: "left"
+      anchor: "left",
     }).setDOMContent(container);
 
     marker.setPopup(popup);
+    markers[nodeName] = marker;
+
+    // ✅ Custom marker click handler
+    marker.getElement().addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      // If this popup is already active, close it
+      if (activePopupNode === nodeName) {
+        popup.remove();
+        activePopupNode = null;
+        document.getElementById("global-advisory").style.display = "none";
+      } else {
+        // Close any previously open popup
+        Object.values(markers).forEach(m => {
+          const p = m.getPopup();
+          if (p && p.isOpen()) p.remove();
+        });
+        popup.addTo(map);
+        activePopupNode = nodeName;
+      }
+    });
+
+    // When the popup X button is clicked
+    popup.on("close", () => {
+      if (activePopupNode === nodeName) {
+        activePopupNode = null;
+        document.getElementById("global-advisory").style.display = "none";
+      }
+    });
+
+
     markers[nodeName] = marker;
   });
 
   // Adjust zoom and bounds
   if (coordsList.length > 0) {
-    let minX = Math.min(...coordsList.map(c => c[0]));
-    let maxX = Math.max(...coordsList.map(c => c[0]));
-    let minY = Math.min(...coordsList.map(c => c[1]));
-    let maxY = Math.max(...coordsList.map(c => c[1]));
+    let minX = Math.min(...coordsList.map((c) => c[0]));
+    let maxX = Math.max(...coordsList.map((c) => c[0]));
+    let minY = Math.min(...coordsList.map((c) => c[1]));
+    let maxY = Math.max(...coordsList.map((c) => c[1]));
 
     map.resize();
 
@@ -308,14 +355,19 @@ function updateMap(data) {
     }
 
     const adjustedBounds = new maplibregl.LngLatBounds([minX, minY], [maxX, maxY]);
-    const padding = { top: 40, bottom: 40, left: Math.round(w * 0.12), right: Math.round(w * 0.12) };
+    const padding = {
+      top: 40,
+      bottom: 40,
+      left: Math.round(w * 0.12),
+      right: Math.round(w * 0.12),
+    };
 
     map.fitBounds(adjustedBounds, {
       padding,
       animate: true,
       maxZoom: 16,
       bearing: 270,
-      pitch: 0
+      pitch: 0,
     });
   }
 }
