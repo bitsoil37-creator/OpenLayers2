@@ -71,7 +71,6 @@ if (!username) {
   throw new Error("Username missing");
 }
 
-/* --- Map setup --- */
 const map = new maplibregl.Map({
   container: 'map',
   style: {
@@ -97,11 +96,12 @@ const map = new maplibregl.Map({
       }
     ]
   },
-  center: [125.2647, 6.9248],
-  zoom: 18,
-  bearing: 270, // facing west
-  pitch: 0 // top-down
+  center: [0, 0],   // center of the world
+  zoom: 1,          // zoomed out enough to see most of the globe
+  bearing: 0,
+  pitch: 0
 });
+
 
 /* ✅ Only one compass control */
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
@@ -182,11 +182,13 @@ function updateMap(data) {
       barLines.className = "bar-lines";
       for (let j = 1; j < 10; j++) barLines.appendChild(document.createElement("div"));
 
-      const barValue = document.createElement("span");
-      barValue.className = "bar-value";
-      barValue.textContent = value.toFixed(2);
+     const barValue = document.createElement("span");
+barValue.className = "bar-value";
+barValue.textContent = value.toFixed(2);
 
-      barContainer.append(bar, barLines, barValue);
+barContainer.append(bar, barLines); // removed the number
+
+
 
       const info = document.createElement("button");
       info.textContent = "ℹ️";
@@ -325,52 +327,5 @@ function updateMap(data) {
   });
 
   // Adjust zoom and bounds
-  if (coordsList.length > 0) {
-    let minX = Math.min(...coordsList.map((c) => c[0]));
-    let maxX = Math.max(...coordsList.map((c) => c[0]));
-    let minY = Math.min(...coordsList.map((c) => c[1]));
-    let maxY = Math.max(...coordsList.map((c) => c[1]));
-
-    map.resize();
-
-    const w = map.getContainer().clientWidth || window.innerWidth;
-    const h = map.getContainer().clientHeight || window.innerHeight;
-    const viewRatio = w / h;
-
-    let lngSpan = Math.max(0.00001, maxX - minX);
-    let latSpan = Math.max(0.00001, maxY - minY);
-
-    const boundsRatio = lngSpan / latSpan;
-
-    if (boundsRatio < viewRatio) {
-      const targetLngSpan = latSpan * viewRatio;
-      const add = (targetLngSpan - lngSpan) / 2;
-      minX -= add;
-      maxX += add;
-    } else if (boundsRatio > viewRatio) {
-      const targetLatSpan = lngSpan / viewRatio;
-      const add = (targetLatSpan - latSpan) / 2;
-      minY -= add;
-      maxY += add;
-    }
-
-    const adjustedBounds = new maplibregl.LngLatBounds([minX, minY], [maxX, maxY]);
-    const padding = {
-      top: 40,
-      bottom: 40,
-      left: Math.round(w * 0.12),
-      right: Math.round(w * 0.12),
-    };
-
-    map.fitBounds(adjustedBounds, {
-      padding,
-      animate: true,
-      maxZoom: 16,
-      bearing: 270,
-      pitch: 0,
-    });
-  }
+  
 }
-
-
-
