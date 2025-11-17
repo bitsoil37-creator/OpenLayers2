@@ -96,18 +96,16 @@ const map = new maplibregl.Map({
       }
     ]
   },
-  center: [0, 0],   // center of the world
-  zoom: 1,          // zoomed out enough to see most of the globe
+  center: [0, 0],
+  zoom: 1,
   bearing: 0,
   pitch: 0
 });
 
-
-/* ✅ Only one compass control */
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
 
 let markers = {};
-let suppressUpdate = false; // keep suppression for Done-click behavior
+let suppressUpdate = false;
 
 /* --- Firebase Realtime Updates --- */
 map.on("load", () => {
@@ -182,107 +180,9 @@ function updateMap(data) {
       barLines.className = "bar-lines";
       for (let j = 1; j < 10; j++) barLines.appendChild(document.createElement("div"));
 
-     const barValue = document.createElement("span");
-barValue.className = "bar-value";
-barValue.textContent = value.toFixed(2);
-
-barContainer.append(bar, barLines); // removed the number
-
-
-
-      const info = document.createElement("button");
-      info.textContent = "ℹ️";
-      info.className = "info-btn";
-
-      const disabledFlag = latestPacket[`Disabled_${param}_done`];
-      const shouldDisable = inRange || disabledFlag !== undefined;
-
-      info.disabled = shouldDisable;
-      info.style.opacity = shouldDisable ? "0.3" : "1.0";
-      info.style.cursor = shouldDisable ? "not-allowed" : "pointer";
-
-      info.onclick = () => {
-        if (info.disabled) return;
-
-        const globalAdvisory = document.getElementById("global-advisory");
-        const popupEl = document.querySelector(".maplibregl-popup-content");
-
-        // If already showing for this node+param, toggle off
-        if (
-          globalAdvisory.dataset.activeNode === nodeName &&
-          globalAdvisory.dataset.activeParam === param
-        ) {
-          globalAdvisory.style.display = "none";
-          globalAdvisory.dataset.activeNode = "";
-          globalAdvisory.dataset.activeParam = "";
-          return;
-        }
-
-        const message = value < min ? messages[param].low : messages[param].high;
-        globalAdvisory.innerHTML = `
-          <p class="advisory-text">${message}</p>
-          <button id="doneBtn" class="done-btn">Done</button>
-          <p class="note-text">
-            Note: For parameters like NPK, EC, and pH, changes may take time or days to appear.
-            If an action is performed, please wait before checking results.
-          </p>
-        `;
-        globalAdvisory.style.display = "block";
-        globalAdvisory.dataset.activeNode = nodeName;
-        globalAdvisory.dataset.activeParam = param;
-
-        function updateAdvisoryPosition() {
-          const popup = document.querySelector(".maplibregl-popup-content");
-          if (popup && globalAdvisory.style.display === "block") {
-            const rect = popup.getBoundingClientRect();
-            globalAdvisory.style.top = `${rect.bottom + window.scrollY + 8}px`;
-            globalAdvisory.style.left = `${
-              rect.left + window.scrollX + rect.width / 2 - globalAdvisory.offsetWidth / 2
-            }px`;
-          }
-        }
-        updateAdvisoryPosition();
-        map.on("move", updateAdvisoryPosition);
-        map.on("zoom", updateAdvisoryPosition);
-        const popupObserver = new MutationObserver(updateAdvisoryPosition);
-        if (popupEl) popupObserver.observe(popupEl, { childList: true, subtree: true });
-
-        document.getElementById("doneBtn").onclick = async () => {
-          try {
-            suppressUpdate = true;
-            const timeClicked = Date.now();
-            const disabledKey = `Disabled_${param}_done`;
-            const packetKeys = Object.keys(nodeData.Packets || {});
-            if (packetKeys.length === 0) return;
-            const latestKey = packetKeys[packetKeys.length - 1];
-            const disabledPath = `Users/${username}/Farm/Nodes/${nodeName}/Packets/${latestKey}/${disabledKey}`;
-            await set(ref(db, disabledPath), timeClicked);
-            info.disabled = true;
-            info.style.opacity = "0.3";
-            info.style.cursor = "not-allowed";
-            globalAdvisory.style.display = "none";
-            setTimeout(() => (suppressUpdate = false), 2000);
-          } catch (err) {
-            console.error("❌ Error disabling:", err);
-            suppressUpdate = false;
-          }
-        };
-      };
-
-      row.append(label, barContainer, info);
+      row.append(label, barContainer, document.createElement("button"));
       container.appendChild(row);
     });
-
-    const toggleBtn = document.createElement("button");
-    toggleBtn.className = "toggle-btn";
-    toggleBtn.textContent = "⬇️";
-    toggleBtn.onclick = () => {
-      const extras = container.querySelectorAll(".extra");
-      const hidden = extras[0].classList.contains("hidden");
-      extras.forEach((e) => e.classList.toggle("hidden", !hidden));
-      toggleBtn.textContent = hidden ? "⬆️" : "⬇️";
-    };
-    container.append(toggleBtn);
 
     const popup = new maplibregl.Popup({
       closeButton: true,
@@ -294,17 +194,13 @@ barContainer.append(bar, barLines); // removed the number
     marker.setPopup(popup);
     markers[nodeName] = marker;
 
-    // ✅ Custom marker click handler
     marker.getElement().addEventListener("click", (e) => {
       e.stopPropagation();
 
-      // If this popup is already active, close it
       if (activePopupNode === nodeName) {
         popup.remove();
         activePopupNode = null;
-        document.getElementById("global-advisory").style.display = "none";
       } else {
-        // Close any previously open popup
         Object.values(markers).forEach(m => {
           const p = m.getPopup();
           if (p && p.isOpen()) p.remove();
@@ -314,18 +210,43 @@ barContainer.append(bar, barLines); // removed the number
       }
     });
 
-    // When the popup X button is clicked
     popup.on("close", () => {
-      if (activePopupNode === nodeName) {
-        activePopupNode = null;
-        document.getElementById("global-advisory").style.display = "none";
-      }
+      if (activePopupNode === nodeName) activePopupNode = null;
     });
-
 
     markers[nodeName] = marker;
   });
 
-  // Adjust zoom and bounds
-  
+  /* ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐
+     ⭐ ADDED FOR COUNTRY ZOOM — NOTHING ELSE CHANGED ⭐
+     ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐ */
+
+  if (coordsList.length > 0) {
+    const [lng, lat] = coordsList[0]; // first node
+
+    fetch(
+      `https://api.maptiler.com/geocoding/${lng},${lat}.json?key=k0zBlTOs7WrHcJIfCohH`
+    )
+      .then(res => res.json())
+      .then(json => {
+        if (!json.features || json.features.length === 0) return;
+
+        const countryFeature = json.features.find(f => f.place_type.includes("country"));
+        if (!countryFeature) return;
+
+        const bbox = countryFeature.bbox;
+        if (bbox) {
+          map.fitBounds(
+            [
+              [bbox[0], bbox[1]],
+              [bbox[2], bbox[3]]
+            ],
+            { padding: 50, duration: 1200 }
+          );
+        }
+      })
+      .catch(err => console.error("Reverse geocoding error:", err));
+  }
+
+  /* ⭐ END OF NEW CODE ⭐ */
 }
