@@ -231,8 +231,9 @@ body, html {
 }
 
 #map-header img {
-  max-height: 500px;      /* logo fits inside banner */
+  max-height: 400px;      /* logo fits inside banner */
   object-fit: contain;    /* preserve logo aspect ratio */
-  width: 500px;            /* preserve aspect ratio */
+  width: 400px;            /* preserve aspect ratio */
   margin-top: 50px;       /* move logo downward */
 }
+
