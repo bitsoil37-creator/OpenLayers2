@@ -180,9 +180,104 @@ function updateMap(data) {
       barLines.className = "bar-lines";
       for (let j = 1; j < 10; j++) barLines.appendChild(document.createElement("div"));
 
-      row.append(label, barContainer, document.createElement("button"));
+      const barValue = document.createElement("span");
+      barValue.className = "bar-value";
+      barValue.textContent = value.toFixed(2);
+
+      barContainer.append(bar, barLines); // ✅ HEALTH BAR
+
+      const info = document.createElement("button");
+      info.textContent = "ℹ️";
+      info.className = "info-btn";
+
+      const disabledFlag = latestPacket[`Disabled_${param}_done`];
+      const shouldDisable = inRange || disabledFlag !== undefined;
+
+      info.disabled = shouldDisable;
+      info.style.opacity = shouldDisable ? "0.3" : "1.0";
+      info.style.cursor = shouldDisable ? "not-allowed" : "pointer";
+
+      info.onclick = () => {
+        if (info.disabled) return;
+
+        const globalAdvisory = document.getElementById("global-advisory");
+        const popupEl = document.querySelector(".maplibregl-popup-content");
+
+        if (
+          globalAdvisory.dataset.activeNode === nodeName &&
+          globalAdvisory.dataset.activeParam === param
+        ) {
+          globalAdvisory.style.display = "none";
+          globalAdvisory.dataset.activeNode = "";
+          globalAdvisory.dataset.activeParam = "";
+          return;
+        }
+
+        const message = value < min ? messages[param].low : messages[param].high;
+        globalAdvisory.innerHTML = `
+          <p class="advisory-text">${message}</p>
+          <button id="doneBtn" class="done-btn">Done</button>
+          <p class="note-text">
+            Note: For parameters like NPK, EC, and pH, changes may take time or days to appear.
+            If an action is performed, please wait before checking results.
+          </p>
+        `;
+        globalAdvisory.style.display = "block";
+        globalAdvisory.dataset.activeNode = nodeName;
+        globalAdvisory.dataset.activeParam = param;
+
+        function updateAdvisoryPosition() {
+          const popup = document.querySelector(".maplibregl-popup-content");
+          if (popup && globalAdvisory.style.display === "block") {
+            const rect = popup.getBoundingClientRect();
+            globalAdvisory.style.top = `${rect.bottom + window.scrollY + 8}px`;
+            globalAdvisory.style.left = `${
+              rect.left + window.scrollX + rect.width / 2 - globalAdvisory.offsetWidth / 2
+            }px`;
+          }
+        }
+        updateAdvisoryPosition();
+        map.on("move", updateAdvisoryPosition);
+        map.on("zoom", updateAdvisoryPosition);
+        const popupObserver = new MutationObserver(updateAdvisoryPosition);
+        if (popupEl) popupObserver.observe(popupEl, { childList: true, subtree: true });
+
+        document.getElementById("doneBtn").onclick = async () => {
+          try {
+            suppressUpdate = true;
+            const timeClicked = Date.now();
+            const disabledKey = `Disabled_${param}_done`;
+            const packetKeys = Object.keys(nodeData.Packets || {});
+            if (packetKeys.length === 0) return;
+            const latestKey = packetKeys[packetKeys.length - 1];
+            const disabledPath = `Users/${username}/Farm/Nodes/${nodeName}/Packets/${latestKey}/${disabledKey}`;
+            await set(ref(db, disabledPath), timeClicked);
+            info.disabled = true;
+            info.style.opacity = "0.3";
+            info.style.cursor = "not-allowed";
+            globalAdvisory.style.display = "none";
+            setTimeout(() => (suppressUpdate = false), 2000);
+          } catch (err) {
+            console.error("❌ Error disabling:", err);
+            suppressUpdate = false;
+          }
+        };
+      };
+
+      row.append(label, barContainer, info);
       container.appendChild(row);
     });
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "toggle-btn";
+    toggleBtn.textContent = "⬇️";
+    toggleBtn.onclick = () => {
+      const extras = container.querySelectorAll(".extra");
+      const hidden = extras[0].classList.contains("hidden");
+      extras.forEach((e) => e.classList.toggle("hidden", !hidden));
+      toggleBtn.textContent = hidden ? "⬆️" : "⬇️";
+    };
+    container.append(toggleBtn);
 
     const popup = new maplibregl.Popup({
       closeButton: true,
@@ -200,6 +295,7 @@ function updateMap(data) {
       if (activePopupNode === nodeName) {
         popup.remove();
         activePopupNode = null;
+        document.getElementById("global-advisory").style.display = "none";
       } else {
         Object.values(markers).forEach(m => {
           const p = m.getPopup();
@@ -211,19 +307,16 @@ function updateMap(data) {
     });
 
     popup.on("close", () => {
-      if (activePopupNode === nodeName) activePopupNode = null;
+      if (activePopupNode === nodeName) {
+        activePopupNode = null;
+        document.getElementById("global-advisory").style.display = "none";
+      }
     });
-
-    markers[nodeName] = marker;
   });
 
-  /* ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐
-     ⭐ ADDED FOR COUNTRY ZOOM — NOTHING ELSE CHANGED ⭐
-     ⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐ */
-
+  /* ⭐ ADDED FOR COUNTRY ZOOM — NOTHING ELSE CHANGED */
   if (coordsList.length > 0) {
-    const [lng, lat] = coordsList[0]; // first node
-
+    const [lng, lat] = coordsList[0];
     fetch(
       `https://api.maptiler.com/geocoding/${lng},${lat}.json?key=k0zBlTOs7WrHcJIfCohH`
     )
@@ -247,6 +340,4 @@ function updateMap(data) {
       })
       .catch(err => console.error("Reverse geocoding error:", err));
   }
-
-  /* ⭐ END OF NEW CODE ⭐ */
 }
