@@ -7,7 +7,7 @@ import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebase
 
 /* --- Firebase Config --- */
 const firebaseConfig = {
-  databaseURL: "https://yurmam-40325-default-rtdb.firebaseio.com/"
+  databaseURL: "https://soilbitchina-default-rtdb.firebaseio.com/"
 };
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
@@ -341,3 +341,4 @@ function updateMap(data) {
       .catch(err => console.error("Reverse geocoding error:", err));
   }
 }
+
