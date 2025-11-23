@@ -124,16 +124,21 @@ function updateMap(data) {
 
   Object.entries(data).forEach(([nodeName, nodeData]) => {
     const coords = nodeData.Coordinates;
-    if (!coords) return;
+    if (!coords || coords.X === undefined || coords.Y === undefined) {
+      console.warn(`${nodeName} skipped: missing coordinates`);
+      return;
+    }
     coordsList.push([coords.X, coords.Y]);
 
     const packets = Object.values(nodeData.Packets || {});
-    if (packets.length === 0) return;
-    const latestPacket = packets[packets.length - 1];
+    const latestPacket = packets.length > 0 ? packets[packets.length - 1] : null;
 
     if (markers[nodeName]) markers[nodeName].remove();
 
-    const marker = new maplibregl.Marker({ color: "red" })
+    // If no packets, marker is grey
+    const markerColor = latestPacket ? "red" : "grey";
+
+    const marker = new maplibregl.Marker({ color: markerColor })
       .setLngLat([coords.X, coords.Y])
       .addTo(map);
 
@@ -146,134 +151,138 @@ function updateMap(data) {
     title.style.textAlign = "center";
     container.appendChild(title);
 
-    const advisoryContainer = document.createElement("div");
-    advisoryContainer.className = "advisory-container";
+    if (!latestPacket) {
+      // No data yet
+      const noData = document.createElement("p");
+      noData.textContent = "No data available yet.";
+      noData.style.textAlign = "center";
+      container.appendChild(noData);
+    } else {
+      // Existing code for parameters and bars
+      params.forEach((param, i) => {
+        const row = document.createElement("div");
+        row.className = `param-row ${i >= 4 ? "extra hidden" : ""}`;
 
-    params.forEach((param, i) => {
-      const row = document.createElement("div");
-      row.className = `param-row ${i >= 4 ? "extra hidden" : ""}`;
+        const label = document.createElement("span");
+        label.textContent = param;
+        label.className = "param-label";
 
-      const label = document.createElement("span");
-      label.textContent = param;
-      label.className = "param-label";
+        const value = parseFloat(latestPacket[param.toLowerCase()]) || 0;
+        const [min, max] = ranges[param] || [0, 100];
+        let percent = 0;
 
-      const value = parseFloat(latestPacket[param.toLowerCase()]) || 0;
-      const [min, max] = ranges[param] || [0, 100];
-      let percent = 0;
+        if (param === "pH") percent = ((value - 3) / (9 - 3)) * 100;
+        else if (param === "Moisture") percent = value;
+        else if (param === "Temperature") percent = ((value - (-30)) / (70 - (-30))) * 100;
+        else percent =
+          (Math.log10(Math.max(value, 0.01)) - Math.log10(0.01)) /
+          (Math.log10(20) - Math.log10(0.01)) * 100;
 
-      if (param === "pH") percent = ((value - 3) / (9 - 3)) * 100;
-      else if (param === "Moisture") percent = value;
-      else if (param === "Temperature") percent = ((value - (-30)) / (70 - (-30))) * 100;
-      else percent =
-        (Math.log10(Math.max(value, 0.01)) - Math.log10(0.01)) /
-        (Math.log10(20) - Math.log10(0.01)) * 100;
+        const barContainer = document.createElement("div");
+        barContainer.className = "bar-container";
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        bar.style.width = Math.min(Math.max(percent, 0), 100) + "%";
+        const inRange = value >= min && value <= max;
+        bar.style.background = inRange ? "darkgreen" : "red";
 
-      const barContainer = document.createElement("div");
-      barContainer.className = "bar-container";
-      const bar = document.createElement("div");
-      bar.className = "bar";
-      bar.style.width = Math.min(Math.max(percent, 0), 100) + "%";
-      const inRange = value >= min && value <= max;
-      bar.style.background = inRange ? "darkgreen" : "red";
+        const barLines = document.createElement("div");
+        barLines.className = "bar-lines";
+        for (let j = 1; j < 10; j++) barLines.appendChild(document.createElement("div"));
 
-      const barLines = document.createElement("div");
-      barLines.className = "bar-lines";
-      for (let j = 1; j < 10; j++) barLines.appendChild(document.createElement("div"));
+        barContainer.append(bar, barLines);
 
-      const barValue = document.createElement("span");
-      barValue.className = "bar-value";
-      barValue.textContent = value.toFixed(2);
+        const info = document.createElement("button");
+        info.textContent = "ℹ️";
+        info.className = "info-btn";
 
-      barContainer.append(bar, barLines); // ✅ HEALTH BAR
+        const disabledFlag = latestPacket[`Disabled_${param}_done`];
+        const shouldDisable = inRange || disabledFlag !== undefined;
 
-      const info = document.createElement("button");
-      info.textContent = "ℹ️";
-      info.className = "info-btn";
+        info.disabled = shouldDisable;
+        info.style.opacity = shouldDisable ? "0.3" : "1.0";
+        info.style.cursor = shouldDisable ? "not-allowed" : "pointer";
 
-      const disabledFlag = latestPacket[`Disabled_${param}_done`];
-      const shouldDisable = inRange || disabledFlag !== undefined;
+        // Click advisory handler
+        info.onclick = () => {
+          if (info.disabled) return;
 
-      info.disabled = shouldDisable;
-      info.style.opacity = shouldDisable ? "0.3" : "1.0";
-      info.style.cursor = shouldDisable ? "not-allowed" : "pointer";
+          const globalAdvisory = document.getElementById("global-advisory");
+          const popupEl = document.querySelector(".maplibregl-popup-content");
 
-      info.onclick = () => {
-        if (info.disabled) return;
-
-        const globalAdvisory = document.getElementById("global-advisory");
-        const popupEl = document.querySelector(".maplibregl-popup-content");
-
-        if (
-          globalAdvisory.dataset.activeNode === nodeName &&
-          globalAdvisory.dataset.activeParam === param
-        ) {
-          globalAdvisory.style.display = "none";
-          globalAdvisory.dataset.activeNode = "";
-          globalAdvisory.dataset.activeParam = "";
-          return;
-        }
-
-        const message = value < min ? messages[param].low : messages[param].high;
-        globalAdvisory.innerHTML = `
-          <p class="advisory-text">${message}</p>
-          <button id="doneBtn" class="done-btn">Done</button>
-          <p class="note-text">
-            Note: For parameters like NPK, EC, and pH, changes may take time or days to appear.
-            If an action is performed, please wait before checking results.
-          </p>
-        `;
-        globalAdvisory.style.display = "block";
-        globalAdvisory.dataset.activeNode = nodeName;
-        globalAdvisory.dataset.activeParam = param;
-
-        function updateAdvisoryPosition() {
-          const popup = document.querySelector(".maplibregl-popup-content");
-          if (popup && globalAdvisory.style.display === "block") {
-            const rect = popup.getBoundingClientRect();
-            globalAdvisory.style.top = `${rect.bottom + window.scrollY + 8}px`;
-            globalAdvisory.style.left = `${
-              rect.left + window.scrollX + rect.width / 2 - globalAdvisory.offsetWidth / 2
-            }px`;
-          }
-        }
-        updateAdvisoryPosition();
-        map.on("move", updateAdvisoryPosition);
-        map.on("zoom", updateAdvisoryPosition);
-        const popupObserver = new MutationObserver(updateAdvisoryPosition);
-        if (popupEl) popupObserver.observe(popupEl, { childList: true, subtree: true });
-
-        document.getElementById("doneBtn").onclick = async () => {
-          try {
-            suppressUpdate = true;
-            const timeClicked = Date.now();
-            const disabledKey = `Disabled_${param}_done`;
-            const packetKeys = Object.keys(nodeData.Packets || {});
-            if (packetKeys.length === 0) return;
-            const latestKey = packetKeys[packetKeys.length - 1];
-            const disabledPath = `Users/${username}/Farm/Nodes/${nodeName}/Packets/${latestKey}/${disabledKey}`;
-            await set(ref(db, disabledPath), timeClicked);
-            info.disabled = true;
-            info.style.opacity = "0.3";
-            info.style.cursor = "not-allowed";
+          if (
+            globalAdvisory.dataset.activeNode === nodeName &&
+            globalAdvisory.dataset.activeParam === param
+          ) {
             globalAdvisory.style.display = "none";
-            setTimeout(() => (suppressUpdate = false), 2000);
-          } catch (err) {
-            console.error("❌ Error disabling:", err);
-            suppressUpdate = false;
+            globalAdvisory.dataset.activeNode = "";
+            globalAdvisory.dataset.activeParam = "";
+            return;
           }
+
+          const message = value < min ? messages[param].low : messages[param].high;
+          globalAdvisory.innerHTML = `
+            <p class="advisory-text">${message}</p>
+            <button id="doneBtn" class="done-btn">Done</button>
+            <p class="note-text">
+              Note: For parameters like NPK, EC, and pH, changes may take time or days to appear.
+              If an action is performed, please wait before checking results.
+            </p>
+          `;
+          globalAdvisory.style.display = "block";
+          globalAdvisory.dataset.activeNode = nodeName;
+          globalAdvisory.dataset.activeParam = param;
+
+          function updateAdvisoryPosition() {
+            const popup = document.querySelector(".maplibregl-popup-content");
+            if (popup && globalAdvisory.style.display === "block") {
+              const rect = popup.getBoundingClientRect();
+              globalAdvisory.style.top = `${rect.bottom + window.scrollY + 8}px`;
+              globalAdvisory.style.left = `${
+                rect.left + window.scrollX + rect.width / 2 - globalAdvisory.offsetWidth / 2
+              }px`;
+            }
+          }
+          updateAdvisoryPosition();
+          map.on("move", updateAdvisoryPosition);
+          map.on("zoom", updateAdvisoryPosition);
+          const popupObserver = new MutationObserver(updateAdvisoryPosition);
+          if (popupEl) popupObserver.observe(popupEl, { childList: true, subtree: true });
+
+          document.getElementById("doneBtn").onclick = async () => {
+            try {
+              suppressUpdate = true;
+              const timeClicked = Date.now();
+              const disabledKey = `Disabled_${param}_done`;
+              const packetKeys = Object.keys(nodeData.Packets || {});
+              if (packetKeys.length === 0) return;
+              const latestKey = packetKeys[packetKeys.length - 1];
+              const disabledPath = `Users/${username}/Farm/Nodes/${nodeName}/Packets/${latestKey}/${disabledKey}`;
+              await set(ref(db, disabledPath), timeClicked);
+              info.disabled = true;
+              info.style.opacity = "0.3";
+              info.style.cursor = "not-allowed";
+              globalAdvisory.style.display = "none";
+              setTimeout(() => (suppressUpdate = false), 2000);
+            } catch (err) {
+              console.error("❌ Error disabling:", err);
+              suppressUpdate = false;
+            }
+          };
         };
-      };
 
-      row.append(label, barContainer, info);
-      container.appendChild(row);
-    });
+        row.append(label, barContainer, info);
+        container.appendChild(row);
+      });
+    }
 
+    // Toggle button
     const toggleBtn = document.createElement("button");
     toggleBtn.className = "toggle-btn";
     toggleBtn.textContent = "⬇️";
     toggleBtn.onclick = () => {
       const extras = container.querySelectorAll(".extra");
-      const hidden = extras[0].classList.contains("hidden");
+      const hidden = extras[0]?.classList.contains("hidden");
       extras.forEach((e) => e.classList.toggle("hidden", !hidden));
       toggleBtn.textContent = hidden ? "⬆️" : "⬇️";
     };
@@ -292,53 +301,64 @@ function updateMap(data) {
     marker.getElement().addEventListener("click", (e) => {
       e.stopPropagation();
 
-      if (activePopupNode === nodeName) {
-        popup.remove();
-        activePopupNode = null;
-        document.getElementById("global-advisory").style.display = "none";
-      } else {
+      if (popup.isOpen()) popup.remove();
+      else {
         Object.values(markers).forEach(m => {
           const p = m.getPopup();
           if (p && p.isOpen()) p.remove();
         });
         popup.addTo(map);
-        activePopupNode = nodeName;
       }
     });
 
     popup.on("close", () => {
-      if (activePopupNode === nodeName) {
-        activePopupNode = null;
-        document.getElementById("global-advisory").style.display = "none";
-      }
+      document.getElementById("global-advisory").style.display = "none";
     });
   });
 
-  /* ⭐ ADDED FOR COUNTRY ZOOM — NOTHING ELSE CHANGED */
-  if (coordsList.length > 0) {
-    const [lng, lat] = coordsList[0];
-    fetch(
-      `https://api.maptiler.com/geocoding/${lng},${lat}.json?key=k0zBlTOs7WrHcJIfCohH`
-    )
+  // Zoom to first node
+ // --- Zoom to the country with the most nodes ---
+if (coordsList.length > 0) {
+  const geocodePromises = coordsList.map(([lng, lat]) =>
+    fetch(`https://api.maptiler.com/geocoding/${lng},${lat}.json?key=k0zBlTOs7WrHcJIfCohH`)
       .then(res => res.json())
-      .then(json => {
-        if (!json.features || json.features.length === 0) return;
+      .catch(() => null)
+  );
 
-        const countryFeature = json.features.find(f => f.place_type.includes("country"));
-        if (!countryFeature) return;
+  Promise.all(geocodePromises).then(results => {
+    const countryCount = {};
+    const countryBboxes = {};
 
-        const bbox = countryFeature.bbox;
-        if (bbox) {
-          map.fitBounds(
-            [
-              [bbox[0], bbox[1]],
-              [bbox[2], bbox[3]]
-            ],
-            { padding: 50, duration: 1200 }
-          );
-        }
-      })
-      .catch(err => console.error("Reverse geocoding error:", err));
-  }
+    results.forEach(json => {
+      if (!json || !json.features) return;
+      const countryFeature = json.features.find(f => f.place_type.includes("country"));
+      if (!countryFeature) return;
+
+      const country = countryFeature.properties.name;
+      countryCount[country] = (countryCount[country] || 0) + 1;
+
+      // Store bbox for the country if we haven't yet
+      if (!countryBboxes[country] && countryFeature.bbox) {
+        countryBboxes[country] = countryFeature.bbox;
+      }
+    });
+
+    // Find country with most nodes
+    const maxCountry = Object.entries(countryCount).reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0])[0];
+    const bbox = countryBboxes[maxCountry];
+
+    if (bbox) {
+      map.fitBounds(
+        [
+          [bbox[0], bbox[1]],
+          [bbox[2], bbox[3]]
+        ],
+        { padding: 50, duration: 1200 }
+      );
+    }
+  });
 }
+
+}
+
 
