@@ -118,6 +118,7 @@ map.on("load", () => {
 });
 
 /* --- Update Map --- */
+/* --- Update Map --- */
 function updateMap(data) {
   const coordsList = [];
   let activePopupNode = null;
@@ -146,17 +147,37 @@ function updateMap(data) {
     container.className = "popup-content";
     container.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
 
+    // Node name
     const title = document.createElement("h3");
     title.textContent = nodeName;
     title.style.textAlign = "center";
+    title.style.marginBottom = "0";
     container.appendChild(title);
 
+    // Timestamp display
+    const timestampDiv = document.createElement("div");
+    timestampDiv.style.textAlign = "center";
+    timestampDiv.style.marginBottom = "12px";
+    timestampDiv.style.fontSize = "12px";
+    timestampDiv.style.color = "#666";
+    
+    if (latestPacket && latestPacket.timestamp) {
+      timestampDiv.textContent = latestPacket.timestamp;
+    } else {
+      timestampDiv.textContent = "No data available yet";
+      timestampDiv.style.fontStyle = "italic";
+    }
+    
+    container.appendChild(timestampDiv);
+
     if (!latestPacket) {
-      // No data yet
-      const noData = document.createElement("p");
-      noData.textContent = "No data available yet.";
-      noData.style.textAlign = "center";
-      container.appendChild(noData);
+      // No data yet - only show message if timestamp is also not available
+      if (!latestPacket || !latestPacket.timestamp) {
+        const noData = document.createElement("p");
+        noData.textContent = "No data available yet.";
+        noData.style.textAlign = "center";
+        container.appendChild(noData);
+      }
     } else {
       // Existing code for parameters and bars
       params.forEach((param, i) => {
@@ -317,48 +338,47 @@ function updateMap(data) {
   });
 
   // Zoom to first node
- // --- Zoom to the country with the most nodes ---
-if (coordsList.length > 0) {
-  const geocodePromises = coordsList.map(([lng, lat]) =>
-    fetch(`https://api.maptiler.com/geocoding/${lng},${lat}.json?key=k0zBlTOs7WrHcJIfCohH`)
-      .then(res => res.json())
-      .catch(() => null)
-  );
+  // --- Zoom to the country with the most nodes ---
+  if (coordsList.length > 0) {
+    const geocodePromises = coordsList.map(([lng, lat]) =>
+      fetch(`https://api.maptiler.com/geocoding/${lng},${lat}.json?key=k0zBlTOs7WrHcJIfCohH`)
+        .then(res => res.json())
+        .catch(() => null)
+    );
 
-  Promise.all(geocodePromises).then(results => {
-    const countryCount = {};
-    const countryBboxes = {};
+    Promise.all(geocodePromises).then(results => {
+      const countryCount = {};
+      const countryBboxes = {};
 
-    results.forEach(json => {
-      if (!json || !json.features) return;
-      const countryFeature = json.features.find(f => f.place_type.includes("country"));
-      if (!countryFeature) return;
+      results.forEach(json => {
+        if (!json || !json.features) return;
+        const countryFeature = json.features.find(f => f.place_type.includes("country"));
+        if (!countryFeature) return;
 
-      const country = countryFeature.properties.name;
-      countryCount[country] = (countryCount[country] || 0) + 1;
+        const country = countryFeature.properties.name;
+        countryCount[country] = (countryCount[country] || 0) + 1;
 
-      // Store bbox for the country if we haven't yet
-      if (!countryBboxes[country] && countryFeature.bbox) {
-        countryBboxes[country] = countryFeature.bbox;
+        // Store bbox for the country if we haven't yet
+        if (!countryBboxes[country] && countryFeature.bbox) {
+          countryBboxes[country] = countryFeature.bbox;
+        }
+      });
+
+      // Find country with most nodes
+      const maxCountry = Object.entries(countryCount).reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0])[0];
+      const bbox = countryBboxes[maxCountry];
+
+      if (bbox) {
+        map.fitBounds(
+          [
+            [bbox[0], bbox[1]],
+            [bbox[2], bbox[3]]
+          ],
+          { padding: 50, duration: 1200 }
+        );
       }
     });
-
-    // Find country with most nodes
-    const maxCountry = Object.entries(countryCount).reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0])[0];
-    const bbox = countryBboxes[maxCountry];
-
-    if (bbox) {
-      map.fitBounds(
-        [
-          [bbox[0], bbox[1]],
-          [bbox[2], bbox[3]]
-        ],
-        { padding: 50, duration: 1200 }
-      );
-    }
-  });
-}
-
+  }
 }
 
 
