@@ -380,5 +380,3 @@ function updateMap(data) {
     });
   }
 }
-
-
