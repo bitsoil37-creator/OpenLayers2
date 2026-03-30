@@ -24,9 +24,9 @@ const ranges = {
   "Temperature": [18.00, 24.00],
   "Salinity": [0.50, 2.00],
   "EC": [0.50, 2.00],
-  "Nitrogen": [80.00, 120.00],
-  "Phosphorus": [20.00, 40.00],
-  "Potassium": [80.00, 120.00]
+  "Nitrogen": [50.00, 125.00],      // Changed from [80, 120]
+  "Phosphorus": [60.00, 80.00],     // Changed from [20, 40]
+  "Potassium": [120.00, 300.00]     // Changed from [80, 120]
 };
 
 const messages = {
@@ -192,12 +192,65 @@ function updateMap(data) {
         const [min, max] = ranges[param] || [0, 100];
         let percent = 0;
 
-        if (param === "pH") percent = ((value - 3) / (9 - 3)) * 100;
-        else if (param === "Moisture") percent = value;
-        else if (param === "Temperature") percent = ((value - (-30)) / (70 - (-30))) * 100;
-        else percent =
-          (Math.log10(Math.max(value, 0.01)) - Math.log10(0.01)) /
-          (Math.log10(20) - Math.log10(0.01)) * 100;
+        if (param === "pH") {
+  percent = ((value - 3) / (9 - 3)) * 100;
+} 
+else if (param === "Moisture") {
+  percent = value;
+} 
+else if (param === "Temperature") {
+  percent = ((value - (-30)) / (70 - (-30))) * 100;
+} 
+else if (param === "Nitrogen") {
+  const min = 50;
+  const max = 125;
+  const mid = (min + max) / 2;
+
+  if (value < min) {
+    percent = (value / min) * 40; // 0–40%
+  } 
+  else if (value > max) {
+    percent = 60 + ((value - max) / max) * 40; // 60–100%
+  } 
+  else {
+    percent = 40 + ((value - min) / (max - min)) * 20; // 40–60%
+  }
+} 
+else if (param === "Phosphorus") {
+  const min = 60;
+  const max = 80;
+  const mid = (min + max) / 2;
+
+  if (value < min) {
+    percent = (value / min) * 40;
+  } 
+  else if (value > max) {
+    percent = 60 + ((value - max) / max) * 40;
+  } 
+  else {
+    percent = 40 + ((value - min) / (max - min)) * 20;
+  }
+} 
+else if (param === "Potassium") {
+  const min = 120;
+  const max = 300;
+  const mid = (min + max) / 2;
+
+  if (value < min) {
+    percent = (value / min) * 40;
+  } 
+  else if (value > max) {
+    percent = 60 + ((value - max) / max) * 40;
+  } 
+  else {
+    percent = 40 + ((value - min) / (max - min)) * 20;
+  }
+}
+else {
+  // EC, Salinity and other parameters using logarithmic scale
+  percent = (Math.log10(Math.max(value, 0.01)) - Math.log10(0.01)) /
+            (Math.log10(20) - Math.log10(0.01)) * 100;
+}
 
         const barContainer = document.createElement("div");
         barContainer.className = "bar-container";
